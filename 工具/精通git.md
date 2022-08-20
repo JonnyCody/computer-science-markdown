@@ -16,7 +16,7 @@ git clone [url]
 
 ## 1.2 记录更新
 
-![image-20220817223541727](E:\Computer Science\个人笔记\工具\精通git.asset\image-20220817223541727-16607470099582.png)
+![image-20220817223541727](./精通git.asset/image-20220817223541727-16607470099582-16609667171373.png)
 
 文件状态：
 
@@ -97,3 +97,193 @@ git 必须显式的推送标签
 git push origin [tagname]
 ```
 
+
+
+# 2 Git分支
+
+## 2.1 分支新建与合并
+
+![image-20220820113252528](./精通git.asset/image-20220820113252528-16609667171374.png)
+
+<center style="color:#C0C0C0;text-decoration:underline">图2-1.分支及其提交历史</center>
+
+### 2.1.1 创建分支
+
+```shell
+git branch testign
+```
+
+![image-20220820113703900](./精通git.asset/image-20220820113703900-16609667171375.png)
+
+此时会创建一个新的分支testing，实际上就是创建了指针，git原理部分后文会详细介绍。但此时HEAD仍旧指向的是master，所以需要切换分支
+
+### 2.1.2 切换分支
+
+```shell
+git checkout testing
+```
+
+![image-20220820114300541](./精通git.asset/image-20220820114300541.png)
+
+此时HEAD指向了test分支
+
+如果在master和testing分支分别提交一次，就可以看到如下
+
+![image-20220820114644245](./精通git.asset/image-20220820114644245.png)
+
+### 2.1.3 合并分支
+
+假设现在有以下提交状况
+
+![image-20220820115151533](./精通git.asset/image-20220820115151533.png)
+
+如果要合并分支，则可以输入
+
+```shell
+git checkout master  	#切换到master分支
+git merge iss53			#合并iss53和master
+```
+
+![image-20220820115432694](./精通git.asset/image-20220820115432694.png)
+
+真正的合并过程如上图所示，会将master、iss53和两者的共同祖先进行比较，然后进行合并，合并也是产生新的节点，而不会进行删除，如下图
+
+![image-20220820115648693](./精通git.asset/image-20220820115648693.png)
+
+```shell
+git branch -d iss53		#删除分支iss53
+```
+
+该命令无法删除还**没有合并**的分支
+
+### 2.1.4 遇到冲突
+
+如果遇到冲突，冲突文件内一般会有如下字段
+
+```html
+<<<<<<< HEAD:index.html
+<div id="footer">contact : email.support@github.com</div>
+=======
+<div id="footer">
+    please contact us at support@github.com
+</div>
+>>>>>>> iss53:index.html
+```
+
+这表示HEAD指向的版本，在这个区段的上半部分，（=======的上半部分），而iss53分支指向的版本在在下半部分。通常修改的办法是删除其中一个版本。
+
+## 2.2 分支查看
+
+```shell
+git branch		#查看所有分支，带*表示HEAD所在分支
+git branch -v 	#查看分支的最后一次的提交
+git branch --mergeed	#查看已经合并的分支
+git branch --no-merged 	#查看没有合并的分支
+```
+
+
+
+## 2.3 不同分支工作流
+
+### 2.3.1 长期分支
+
+![image-20220820121926016](./精通git.asset/image-20220820121926016.png)
+
+![image-20220820121957379](./精通git.asset/image-20220820121957379.png)
+
+只在master分支上保留完整的代码，剩下的分支用来做后续开发或者测试稳定性，这些分支不比保持绝对稳定，一旦达到稳定状态，它们就可以被合并入master分支了。
+
+### 2.3.2 特性分支
+
+![image-20220820122355740](./精通git.asset/image-20220820122355740.png)
+
+![image-20220820122431108](./精通git.asset/image-20220820122431108.png)
+
+特性分支对任何规模的项目都适用，这里先合并dumbidea分支，然后再删除【**如何用命令实现？**】
+
+## 2.4 远程分支
+
+### 2.4.1 远程分支介绍
+
+远程引用是对远程仓库的引用（指针），包括分支、标签等等。可以通过`git ls-remote`显式地获得远程引用的完整列表。
+
+远程跟踪分支是远程分支状态的引用，只有当做任何网络通信操作时，才会自动移动。
+
+![image-20220820124916049](./精通git.asset/image-20220820124916049.png)
+
+从远程仓库进行clone
+
+如果此时有人向远程仓库推送了，但是你还没有更新，则会有如下状况
+
+![image-20220820125215115](./精通git.asset/image-20220820125215115.png)
+
+如果此时使用了`git fetch`,则会出现一下情况
+
+![image-20220820125425785](./精通git.asset/image-20220820125425785.png)
+
+
+
+如果此时存在一个远程仓库git.team1.ourcompany.com是git.ourcompany.com的子集，同时也fetch git.team1.ourcompany.com可以得到
+
+![image-20220820125947756](./精通git.asset/image-20220820125947756.png)
+
+### 2.4.2 推送
+
+推送到origin仓库的serverfix分支
+
+```shell
+git push origin serverfix
+```
+
+git 将会serverfix分支展开成refs/heads/serverfix:refs/heads/serverfix，意思就是推送本地的serverfix分支来更新远程仓库的serverfix分支。
+
+### 2.4.3 跟踪分支
+
+跟踪分支是与远程分支有直接关系的本地分支，如果在一个跟踪分支上输入git pull，Git能够自动地识别去哪个服务器上抓取、合并到哪个分支。
+
+当克隆可以仓库的时候，通常会自动的创造一个跟踪origin/master的master分支，也可以自己设置
+
+```shell
+git checkout -b [branch] [remotename]/[branch]
+git checkout --track [remotename]/[branch]
+git branch -vv			#查看设置的所有跟踪分支
+```
+
+
+
+```shell
+$ git branch -vv
+iss53 7e424c3 [origin/iss53: ahead 2] forgot the brackets
+master 1ae2a45 [origin/master] deploying index fix
+* serverfix f8674d9 [teamone/server-fix-good: ahead 3, behind 1] this should do it
+testing 5ea463a trying something new
+```
+
+其中可以看出iss53分支正在跟踪origin/iss53并且"ahead"是2，意味着本地有两个提交还没有推送到服务器上。这只是与服务器上最后一次的抓取数据，如果要获取最新数据，则需要
+
+```shell
+git fetch --all
+git branch -vv
+```
+
+### 2.4.4 拉取
+
+```shell
+git pull #相当于git fetch git merge两个命令合并
+```
+
+`git fetch`从服务器上抓取本地没有的数据，但是不会修改工作目录中的内容
+
+### 2.4.5 删除远程分支
+
+```shell
+git push origin --delete serverfix
+```
+
+
+
+## 2.5 变基
+
+
+
+# 3 Git原理
