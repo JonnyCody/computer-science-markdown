@@ -284,6 +284,81 @@ git push origin --delete serverfix
 
 ## 2.5 变基
 
+### 2.5.1 普通变基操作
+
+merge操作如下：
+
+![image-20220820171221092](./精通git.asset/image-20220820171221092.png)
+
+![image-20220820171411263](./精通git.asset/image-20220820171411263.png)
+
+变基操作就是提取在C4中引入的补丁和修改，然后在C3的基础上在应用一次。可以使用rebase命令将提交某一分支的所有修改都移至另一分支上。
+
+```shell
+git checkout experiment
+git rebase master
+```
+
+此时，分支如下
+
+![image-20220820171617527](./精通git.asset/image-20220820171617527.png)
+
+```shell
+git checkout master
+git merge experiment
+```
+
+![image-20220820172644046](./精通git.asset/image-20220820172644046.png)
+
+变基和直接merge结果上没有什么区别，但是变基使得提交历史更加整洁。
+
+### 2.5.2 跨分支变基
+
+现有分支如下
+
+![image-20220820173721940](./精通git.asset/image-20220820173721940.png)
+
+如果要想将clien合并到主分支，但是不想合并server，可以通过一下命令
+
+```shell
+git rebase --onto master server client		#取出client分支，找出处于client分支和server分支的共同祖先之后的修改，然后把它们在master分支上重演一边
+```
+
+则会有以下分支效果
+
+![image-20220820174242207](./精通git.asset/image-20220820174242207.png)
+
+然后在进行分支合并
+
+```shell
+git checkout master
+git merge client
+```
+
+![image-20220820174412132](./精通git.asset/image-20220820174412132.png)
+
+再整合server和master
+
+```shell
+git checkout master
+git merge server
+```
+
+![image-20220820175359641](./精通git.asset/image-20220820175359641.png)
+
+```shell
+git branch -d client
+git branch -d server
+```
+
+![image-20220820175655958](./精通git.asset/image-20220820175655958.png)
+
+
+
+### 2.5.3 变基的风险
+
+**不要对在你的仓库外有副本的分支执行变基**。
+
 
 
 # 3 Git原理
