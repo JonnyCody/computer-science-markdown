@@ -97,7 +97,6 @@ git 必须显式的推送标签
 git push origin [tagname]
 ```
 
-<<<<<<< HEAD
 
 
 # 2 Git分支
@@ -288,5 +287,3 @@ git push origin --delete serverfix
 
 
 # 3 Git原理
-=======
->>>>>>> testing
