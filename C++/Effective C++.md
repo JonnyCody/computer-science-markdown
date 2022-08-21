@@ -389,27 +389,217 @@ C++只允许对class templates偏特化，不允许在function templates上偏�
 
 ## 条款26 尽可能延后变量定义式的出现时间
 
+尽可能延后对象的定义，直到可以给定它初始实参为止。这样不仅能够避免构造和析构函数，还能避免无意义的default构造行为。
 
+- 尽可能延后变量定义式的出现。这样做可增加程序的清晰度并改善程序效率。
 
 ## 条款27 尽量少做转型动作
 
+C++四种新式转型
 
+- const_cast通常被用来将对象的常量性转除。
+- dynamic_cast主要用来执行“安全向下转型”，也就是用来决定对象是否归属继承体系中的某个类型。它是唯一无法由旧式语法执行的动作，也是唯一可能耗费重大运行成本的转型动作。
+- reinterpret_cast意图执行低级转型，实际动作可能取决于编译器。
+- static_cast用来强迫隐式转换，将int转换为double
+
+
+
+```c++
+class Window{...};
+
+class SpecialWindow: public Window
+{
+public:
+    void blink();
+    ...
+};
+
+typedef std::vector<std::tr1::shared_ptr<Window>> VPW;
+VPW winPtrs;
+...
+for(VPW::iterator iter = winPtrs.begin();
+   	iter != winPtrs.end();++iter)
+{
+    if(SpecialWindow * psw = dynamic_cast<SpecialWindow*>(iter->get()))
+    {
+        psw->blink();
+    }
+}
+```
+
+不应该采用dynamic_cast，应该如此使用：
+
+```c++
+typedef std::vector<std::tr1::shared_ptr<SpecialWindow>> VPSW;
+VPSW winPtrs;
+...
+for(VPSW::iterator iter = winPtrs.begin();
+   	iter != winPtrs.end();++iter)
+{
+    (*iter)->blink();
+}
+```
+
+或者将blink定义成虚函数，尽量避免转型。
+
+- 如果可以，尽量避免转型，特别是在注重效率的代码中避免dynamic_cast。
+- 如果转型是必要的，试着将它隐藏于某个函数背后。客户随后可以调用该函数，而不需将转型放进他们自己的代码
+- 宁可使用新式转型，不要使用旧式转型。
 
 ## 条款28 避免返回handles指向对象内部成分
 
+- 避免返回handles(包括references、指针、迭代器)指向对象内部。遵守这个条款可增加封装性，帮助const成员函数的行为像个const，并将发生“虚吊号码牌”(dangling handles)的可能性降至最低。
 
 
 ## 条款29 为“异常安全”而努力是值得的
 
+异常安全有两个条件：
 
+- 不泄露任何资源。
+- 不允许数据败坏。
+
+```c++
+class PrettyMenu{
+public:
+    void changeBackground(std::istream& imgSrc);
+private:
+    Mutex mutex;
+    Image* bgImage;
+    int imageChange;
+};
+
+void PrettyMenu::changeBackground(std::istream& imgSrc)
+{
+    lock(&mutex);
+    delete bgImage;
+    ++imageChanges;
+    bgImage = new Image(imageSrc);
+    unlock(&mutex);
+}
+```
+
+存在问题：
+
+- mutex手动释放，容易出问题
+- new 之前delete，如果new抛出异常，则会有悬空指针
+
+改进：
+
+```c++
+class PrettyMenu{
+public:
+    ...
+    std::tr1::shared_ptr<Image> bgImage;
+    ...
+};
+
+void PrettyMenu::changeBackground(std::istream& imgSrc)
+{
+    Lock m1(&mutex);
+    bgImage.reset(new Image(imgSrc));
+    ++imageChange;
+}
+```
+
+存在问题，Image构造函数可能会出现异常，有可能输入流的读取记号已被移走
+
+使用swap改进
+
+```c++
+struct PMImpl{
+    std::tr1::shared_ptr<Image> bgImage;
+    int imageChanges;
+}
+
+class PrettyMenu{
+...
+private:
+    Mutex mutex;
+    std::tr1::shared_ptr<PMImpl> pImpl;
+};
+
+void PrettyMenu::changeBackground(std::istream& imgSrc)
+{
+    using std::swap;
+    Lock m1(&mutex);
+    std::tr1::shared_ptr<PMImpl> pNew(new PMImpl(*pImpl));
+    
+    pNew->bgImage.reset(new Image(imgSrc));
+    ++pNew->imageChanges;
+    
+    swap(pImpl, pNew);
+}
+```
+
+
+
+- 异常安全函数即使发生异常也不会泄漏资源或允许任何数据结构被破。这样的函数分为三种可能的保证：基本型、强烈型、不抛异常型。
+- “强烈保证”往往能够以copy-and-swap实现出来，但是“强烈保证”并非对所有函数都可以实现或具备现实意义。
+- 函数提供的“异常安全保证”通常最高只等于其所调用之各个函数的“异常安全保证”中的最弱者。
 
 ## 条款30 透彻了解inlining的里里外外
 
+inline缺陷：
+
+- 造成程序体积变大，可能会导致额外的换页行为，降低指令高速缓存装置击中率，以及伴随这些而来的效率损失
+
+inline只是对编译器的一个申请，不是强制命令。将函数定义在class内，也是inline。
 
 
-## 条款31 将文件间的编译依存关系降至最低
+
+- 将大多数inlining限制在小型、被频繁调用的函数身上。这可使日后的调试过程和二进制升级更容易，也可使潜在的代码膨胀问题最小化，使程序的速度提升最大化。【因为Inline函数代码已经嵌入进去，如果inline函数改变，则嵌入的客户代码也需要重新编译】
+- 不要只因为function templates出现在头文件，就将它们声明为inline。
+
+## 条款31 将文件间的编译依存关系降至最低【没有完全理解】
+
+```c++
+class Person{
+public:
+    Person(const std::string& name, const Data& birthday,
+          const Address& addr);
+    std::string name() const;
+    std::string birthDate() const;
+    std::string address() const;
+    ...
+private:
+    std::string theName;
+    Date theBirthDate;
+    Address theAddress;
+};
+```
+
+如果Person和Data,Address分开，可以使用指针
+
+```c++
+class PersonImpl;
+class Date;
+class Address;
+
+class Person{
+public:
+    Person(const std::string& name, const Data& birthday,
+          const Address& addr);
+    std::string name() const;
+    std::string birthDate() const;
+    std::string address() const;
+    ...
+private:
+    std::tr1::shared_ptr<PersonImpl> pImpl;
+};
+```
+
+设计策略：
+
+- 如果使用object references或object pointers可以完成任务，就不要使用objects。
+- 如果能够，尽量以class声明式替换class定义式。
+- 为声明式和定义式提供不同的头文件。
+
+C++提供关键字export，允许将template声明式和template定义式分割于不同的文件内。
 
 
+
+- 支持“编译依存最小化”的一般构想是：相依于声明式，不要相依于定义式。基于此构想的两个手段是Handle classes和Interface classes
+- 程序库头文件应该以“完全且仅有声明式”的形式存在。这种做法不论是否涉及templates都适用
 
 # 6 继承与面向对象设计
 
