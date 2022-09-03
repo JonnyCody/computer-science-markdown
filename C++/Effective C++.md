@@ -887,31 +887,289 @@ public:
 
 ## 条款43 学习处理模板化基类内的名称
 
+```c++
+template<typename Company>
+class MsgSender
+{
+public:
+    ...
+    void sendClear(const MsgInfo& info)
+    {
+        std::string msg;
+        
+        Company c;
+        c.sendCleartext(msg);
+    }
+    void sendSecret(const MsgInfo& info)
+    {...}
+};
+
+template <typename Company>
+class LoggingMsgSender: public MsgSender<Company>{
+public:
+    ...
+    void sendClearMsg(const MsgInfo& info)
+    {
+        sendClear(info);
+    }
+    ...
+}
+```
+
+这个derived class是有问题的，因为编译器不知道父类是什么样的类，Company是个template参数，不到具现化是无法知道的。
+
+解决方法，一是加上this，二是使用using声明式，三是指明被调用的函数位于base class内
+
+```c++
+// 方法一
+template <typename Company>
+class LoggingMsgSender: public MsgSender<Company>{
+public:
+    ...
+    void sendClearMsg(const MsgInfo& info)
+    {
+        this->sendClear(info);			// 假设sendClear将被继承
+    }
+    ...
+}
+
+// 方法二
+template <typename Company>
+class LoggingMsgSender: public MsgSender<Company>{
+public:
+    using MsgSender<Company>::sendClear(); 		// 告诉编译器，请它假设sendClear位于base class内
+    ...
+    void sendClearMsg(const MsgInfo& info)
+    {
+        sendClear(info);
+    }
+    ...
+}
+
+// 方法三
+template <typename Company>
+class LoggingMsgSender: public MsgSender<Company>{
+public:
+    ...
+    void sendClearMsg(const MsgInfo& info)
+    {
+        MsgSender<Company>::sendClear(info);	// 假设sendClear将被继承下来
+    }
+    ...
+}
+```
+
 当全特化的模板中出现了一般模板中没有出现的函数，
 
 - 可以在derived class template内通过"this->"指涉base class templates内的成员名称，或藉由一个明白写出的"base class 资格修饰符"完成。
 
 ## 条款44 将与参数无关的代码抽离templates
 
+类模板中的成员函数只有在被使用时才被具现化，所以template的typename参数越少越好，否则会造成代码膨胀
 
+
+
+- template生成多个classes和多个函数，所以任何template代码都不该与某个造成膨胀的template参数产生相依关系
+- 因非类型模板参数而造成的代码膨胀，往往可消除，做法是以函数参数或class成员变量替换template参数
+- 因参数类型而造成的代码膨胀，往往可降低，做法是让带有完全相同二进制表述的具现类型共享实现码
 
 ## 条款45 运用成员函数模板接受所有兼容类型
 
+真实指针做的很好的一件事实支持**隐式转换**，derived class指针可以隐式转换为base class指针，但是同一个模板的具现化之间不存在什么关系，即使参数类型之间具有父子关系。
 
+```c++
+template <typename T>
+class SmartPtr{
+public:
+    template<typename U>
+    SmartPtr(const SmartPtr<U>& other);
+};
+```
+
+以上代码意思，对任何类型T和任何类型U，这里可以根据SmartPtr<U>生成一个SmartPtr<T>，因为SmartPtr<T>有个构造函数接受一个SmartPtr<U>，如果想要充分利用隐式转换的规则，则可以如同下面写的方法
+
+```c++
+template <typename T>
+class SmartPtr{
+public:
+    template<typename U>
+    SmartPtr(const SmartPtr<U>& other)		
+    heldPtr(other.get()){...};
+   	T* get() const {return heldPtr;}
+    ...
+private:
+    T* heldPtr;
+};
+```
+
+此时这个构造函数只有当所获得的实参隶属适当（兼容）类型时才通过编译。
+
+
+
+- 请使用member of function templates生成“可接收的所有兼容类型”的函数
+- 如果你声明member templates用于“泛化拷贝构造”或“泛化assignment操作”你还是需声明正常的拷贝构造函数和copy assignment操作符
 
 ## 条款46 需要类型转换时请为模板定义非成员函数
 
+```c++
+template<typename T>
+class Rational{
+public:
+    Rational(const T& numerator = 0, 
+            const T& denominator = 1);
+    const T numerator() const;
+    const T denuminator() const;
+    ...
+}
 
+template<typename T>
+const Rational<T> operator*(const Rational<T>& lhs, const Rational<T>& rhs)
+{...}
+
+Rational<int> oneHalf(1, 2);
+
+Rational<int> result = oneHalf * 2;	// 错误！无法通过编译
+```
+
+template实参推导过程中从不将隐式类型转换函数纳入考虑，所以2不会推导为Rational<int>
+
+为了解决这个问题，
+
+```c++
+template<typename T>
+class Rational{
+public:
+    ...
+    friend
+    const Rational operator*(const Rational& lhs, const Rational& rhs);
+}
+
+template<typename T>
+const Rational<T> operator*(const Rational<T>& lhs, const Rational<T>& rhs)
+{...}
+```
+
+此时使用Rational<int> result = oneHalf * 2;可以编译通过但是**无法连接**因为类中的函数没有被定义，解决方法是进行定义
+
+```c++
+template<typename T>
+class Rational{
+public:
+    ...
+    friend const Rational operator*(const Rational& lhs, const Rational& rhs)
+    {
+        return Rational(lhs.numerator() * rhs.numberator(),
+                       lhs.denominator() * rhs.denominator());
+	}
+}
+```
+
+
+
+
+
+- 编写一个class template，而它所提供的“于此template相关的”函数支持“所有参数的隐式转换”时，请将那些函数定义为"class template内部的friend函数"。
 
 ## 条款47 请使用traits classes表现类型信息
 
+STL迭代器分类
 
+```c++
+struct input_iterator_tag{};												// 输入迭代器
+struct output_iterator_tag{};												// 输出迭代器
+struct forward_iterator_tag: public input_iterator_tag{} ;					// 单向迭代器
+struct bidirectional_iterator_tag: public forward_iterator_tag{};			// 双向迭代器
+struct random_access_iterator_tag: public bidirectional_iterator_tag{};		// 随机迭代器
+```
+
+使用typedef来确定迭代器类型
+
+```c++
+template<...>
+class deque{
+public:
+    class iterator{
+    public:
+        typedef random_access_iterator_tag iterator_category;
+        ...
+    };
+    ...
+};
+```
+
+实现advance函数
+
+```c++
+template<typename IterT, typename DisT>
+void advance(IterT& iter, DistT d)
+{
+    if(typeid(typename std::iterator_traits<IterT>::iterator_category)
+      ==typeid(std::random_access_iterator_tag))
+    ...
+}
+```
+
+该方法会导致编译问题，具体问题在条款48讨论，所以建议使用重载来解决
+
+```c++
+template<typename IterT, typename DisT>
+void doAdance(IterT& iter, DistT d, std::random_access_iterator_tag)
+{
+    iter += d;
+}
+
+template<typename IterT, typename DisT>
+void doAdance(IterT& iter, DistT d, std::bidirectional_iterator_tag)
+{
+    if(d >= 0) {while (d--) ++iter;}
+    else {while(d++) --iter;}
+}
+```
+
+如何使用一个traits class：
+
+1. 建立一组重载函数或函数模板（例如doAdvance），彼此间的差异只在于各自的traits参数。令每个函数实现码与其接受的traits信息相应和。
+2. 建立一个控制函数或函数模板（例如anvance），它调用上述重载函数并传递traits class所提供的的信息
+
+
+
+- Traits classes使得“类型相关信息”在编译器可用，它们以templates和“templates特化”完成实现
+- 整合重载技术后，traits classes有可能在编译期对类型执行if...else测试
 
 ## 条款48 认识template元编程
 
+模板元编程(TMP, template metaprogramming)的作用：
+
+1. 让某些事情更容易
+2. 由于template metaprogramming执行于C++编译期，因此可将工作从运行期转移到编译期。这就可以将一些错误在运行期侦测到，现在可以在编译期找出来。
+
+【p234代码，如果是list<int>，迭代器怎么会是随机迭代器类型呢，所以那一行应该无法成立】
+
+TMP的循环效果是由递归实现的。
+
+使用TMP好处：
+
+1. 确保量度单位正确。使用TMP可以确保在编译期间程序中所有度量单位的组合都正确，不论其计算多么复杂。
+
+2. 优化矩阵计算
+
+   ```c++
+   typedef SquareMatrix<double, 10000> BigMatrix;
+   BigMatrix m1, m2, m3, m4, m5;
+   ...
+   BigMatrix result = m1 * m2 * m3 * m4 * m5;
+   ```
+
+   不使用TMP，则会产生4个临时变量，每一个用来存储对operator*的调用结果，如果使用TMP，就有可能消除临时变量并合并循环，于是TMP使用较少的内存，执行速度又有戏剧性的上升
+
+3.可以生成客户定制的设计模式实现品。使用policy-based design的TMP-based技术，有可能产生一些templates用来表述独立的设计选项，然后可以任意结合它们，导致模式实现品带着客户定制的行为。【不理解，设计模式还没有学】
 
 
-# 8 定制new和
+
+- TMP可以将工作由运行期移往编译期，因而得以实现早期错误侦测和更高的执行效率
+- TMP可被用来生成“基于政策选择组合”的客户定制代码，也可用来避免生成对某些特殊类型并不适合的代码。
+
+# 8 定制new和delete
 
 ## 条款49 了解new-handle的行为
 
