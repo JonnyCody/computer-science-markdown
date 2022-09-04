@@ -129,3 +129,106 @@ protected:
 
 ![image-20220904002918416](./深入探索C++对象模型.assets/image-20220904002918416.png)
 
+# 第2章 构造函数语意学
+
+## 2.1 默认构造函数的构造操作
+
+### 带有默认构造函数的成员类
+
+如果一个class没有任何constructor，但它内含一个member object，而后者有default constructor，那么这个类的implicit default constructor就是nontrivial，编译器需要为该类合成一个default constructor。不过这个合成操作只有在constructor真正需要被调用时才会发生。
+
+```c++
+class Foo {public: Foo(), Foo(int)...};
+class Bar {public: Foo foo; char *str;};
+
+void foo_bar()
+{
+    Bar bar;	// Bar::foo必须在此处初始化
+    if(str){ } ...
+}
+```
+
+合成的Bar默认构造函数能够调用Foo的**默认构造函数**来处理Bar::foo成员，但是不会对Bar::str进行初始化，对Bar::str进行初始化是程序员的责任。
+
+```c++
+class Dopey {public: Dopey;...};
+class Sneezy {public: Sneezy(int); Sneezy();...};
+class Bashful {public: Bashful();...};
+
+class Snow_White{
+public:
+    Snow_White():sneezy(1024)
+    {
+        mumble = 2048;
+    }
+    Dopey dopey;
+    Sneezy sneezy;
+    Bashful bashful;
+    
+private:
+    int mumble;
+};
+
+// 编译器扩张后的默认构造函数
+// C++伪代码
+Snow_White::Snow_White:sneezy(1024)
+{
+    dopey.Dopey::Dopey();
+    sneezy.Sneezy::Sneezy(1024);
+    bashful.Bashful::Bashful();
+    
+    // explicit user code
+    mumble = 2048;
+}
+```
+
+### 带有默认构造函数的基类
+
+如果一个没有任何构造函数的类派生自一个有默认构造函数的基类，则这个派生类的默认构造函数会被视为nontrivial，并需要被合成，合成的构造函数调用上一层基类的**默认构造函数**（根据它们的声明顺序）
+
+如果子类中写明了构造函数，但是没有默认构造函数，编译器不会合成默认构造函数，只会在已有的构造函数中进行扩展，方便调用父类的**默认构造函数**
+
+### 带有虚函数的类
+
+另外两种情况需要合成默认构造函数
+
+1. 类声明（或继承）一个虚函数
+2. 类派生自一个继承链条，其中有至少一个的虚基类
+
+对于派生自虚类的类
+
+1. 产生vtbl，然后在里面放入类的virtual function地址
+2. 每一个对象中，放入一个额外的指针变量，指向与该类相关的vtbl的地址
+
+### 带有一个虚基类的类
+
+```c++
+class X {public: int i;};
+class A: public virtual X{public: int j;};
+class B: public virtual X{puclic: double d;};
+class C: public A, public B {public: int k;};
+
+// 无法在编译时期决定出pa->X::i的位置
+void foo(const A* pa) {pa->i = 1024;}
+```
+
+原先cfront的做法是子类中的每一个虚父类中插入一个指针，指针指向virtual base class，foo函数被改写如下
+
+```c++
+void foo(const A* pa){pa->__vbcX->i = 1024;}
+```
+
+其中__vbcX表示编译器所产生的指针，指向virtual base class X。
+
+经常会有2个误解：
+
+1. 任何class如果没有定义默认构造函数，就会被合成出一个【写了构造函数，编译器不会构造默认构造函数】
+2. 编译器合成出来的默认构造函数会显式设定类内的每一个数据成员默认值【编译器合成的构造函数只会调用父类或者成员类的默认构造函数，成员变量不会被初始化】
+
+
+
+## 2.1 拷贝构造函数的构造操作
+
+### Default Memberwise Initialization
+
+如果类没有提供拷贝构造函数，使用一个对象初始化另一个对象时，都是将每一个内建的或派生的数据成员的值，从一个对象拷贝到另一个对象上。
