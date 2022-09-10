@@ -232,3 +232,8 @@ void foo(const A* pa){pa->__vbcX->i = 1024;}
 ### Default Memberwise Initialization
 
 如果类没有提供拷贝构造函数，使用一个对象初始化另一个对象时，都是将每一个内建的或派生的数据成员的值，从一个对象拷贝到另一个对象上。
+
+### Bitwise Copy Semantics【不是很理解】
+
+### 重新设定Virtual Table的指针
+
