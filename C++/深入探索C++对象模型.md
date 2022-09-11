@@ -227,8 +227,136 @@ void foo(const A* pa){pa->__vbcX->i = 1024;}
 
 
 
-## 2.1 拷贝构造函数的构造操作
+## 2.2 拷贝构造函数的构造操作
 
 ### Default Memberwise Initialization
 
 如果类没有提供拷贝构造函数，使用一个对象初始化另一个对象时，都是将每一个内建的或派生的数据成员的值，从一个对象拷贝到另一个对象上。
+
+决定一个拷贝构造函数是否为trivial的标准在于class是否展现出所谓的bitwise copy semantics
+
+### Bitwise Copy Semantics
+
+
+
+一个类不展现bitwise copy semantics的情况：
+
+1. 当类中有对象定义了拷贝构造函数
+2. 当类继承自一个有拷贝构造函数的类
+3. 当类声明了一个或多个虚函数的时候
+4. 当类派生自一个继承串联，其中有一个或多个virtual base classes时
+
+### 处理Virtual Base Class Subobject
+
+一个对象以另一个对象为初值， 后者含有一个虚基类对象，则bitwise copy semantics失效
+
+
+
+## 2.3 程序转化语意学
+
+### 返回值的初始化
+
+```c++
+X bar()
+{
+    X xx;
+    // 处理xx
+    return xx;
+}
+
+// 函数转换，以反映出拷贝构造函数的一个额外参数
+void bar(X& _result)
+{
+    X xx;
+    xx.X::X();
+    // 处理xx
+    
+    // 编译器所产生的copy constructor调用操作
+    _result.X::X(xx);
+    
+    return;
+}
+```
+
+### 在使用者层面做优化
+
+定义一个计算用的constructor
+
+```c++
+X bar()
+{
+    X xx;
+    // 以y和z来处理xx
+    return xx;
+}
+```
+
+这种情况，xx会被"memberwise"地拷贝到编译器产生的_result之中。可以另定义一个constructor，直接计算xx的值
+
+```c++
+
+X bar(const T &y, const T &z)
+{
+    return X(y,z);
+}
+
+// C++伪码
+void bar(X &_result)
+{
+    _result.X::X(y, z);
+    return;
+}
+```
+
+### 在编译器层面做优化
+
+编译器的优化就是使用result参数取代named return value
+
+```c++
+X bar()
+{
+    X xx;
+    // 以y和z来处理xx
+    return xx;
+}
+```
+
+编译器会用_result取代xx
+
+```c++
+void bar(X& _result)
+{
+    // default constructor被调用
+    // C++伪码
+    _result.X::X();
+    
+    // ...直接处理_result
+    
+    return;
+}
+```
+
+【P68中，拷贝构造函数激活了C++编译器中的NRV，其中的原因？】
+
+### 拷贝构造函数：要还是不要？
+
+如果一个函数以传值的方式传回一个对象，而该对象的类有一个拷贝构造函数，则编译器会进行优化，就是以一个额外的第一参数（数值直接存放于其中）取代NRV，
+
+## 2.4 成员们的初始化列表
+
+编译器会一一操作初始化列表，用适当的顺序在构造函数内部安插初始化操作，会**省略临时性对象**。
+
+初始化的顺序是由类中成员的声明顺序决定的，而不是初始化列表中的顺序决定的。
+
+初始化列表的执行会**早于**构造函数函数体。
+
+```c++
+X::X(int val): i(xfoo(val)), j(val)
+{}
+```
+
+如果初始化列表需要调用成员函数初始化一个成员，则应该使用构造函数体内一个成员，而不是初始化列表中的成员
+
+
+
+编译器会对初始化列表一一处理并可能重新排列，以反映成员的声明顺。它会安插一些代码到构造函数体内，并置于任何explicit user code之前
