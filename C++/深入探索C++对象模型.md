@@ -480,9 +480,172 @@ C++ Standard没有要求多重继承中base classes的排列顺序，原始的cf
 
 
 
-![image-20220912111720201](./深入探索C++对象模型.assets/image-20220912111720201.png)
+![image-20220912111720201](./深入探索C++对象模型.assets/image-20220912111720201.png) 
 
 ## 3.6 指向Data Members的指针
 
+# 第4章 Function语意学
+
+## 4.1 Member的各种调用方式
+
+### 非静态成员函数
+
+C++的设计准则之一就是：非静态成员函数至少必须和一般的非成员函数有相同的效率。
+
+将成员函数改为非成员函数的步骤：
+
+1. 改写函数的signature，添加一个额外的参数到member function中，就是this指针
+2. 将每一个非静态成员的存取操作改为经由this指针来存取
+3. 将member function重新写成一个外部函数，将函数名称经过“mangling”处理，使它在程序中称为独一无二的语汇
+
+### 虚拟成员函数
+
+如果normalize()是一个virtual member function，那么以下调用
+
+```c++
+ptr->normalize();
+```
+
+会被转化为：
+
+```c++
+(*ptr->vptr[1])(ptr);
+```
+
+- vptr表示由编译器产生的指针，指向virtual table。它被安插在每一个“声明有（或继承自）一个或多个virtual functions”的class object中。事实上其名称也会被"mangled"，因为在一个复杂的派生体系中，可能存在多个vptrs
+- 1是virtual table slot的索引值，关联到normalize()函数
+- 第二个ptr表示this指针
+
+### 静态成员函数
+
+特点：
+
+1. 不能够直接存取其class中的非静态成员，因为没有静态函数没有this指针
+2. 不能够被声明为const, volatile, virtual
+3. 不需要经由class object才被调用
+
+## 4.2 虚拟成员函数【需要重新看】
+
+### 单一继承
+
+```c++
+class Point{
+public:
+    virtual ~Point();
+    
+    virtual Point& mult(float) = 0;
+    // ...其他操作
+    
+    float x() const {return _x;}
+    virtual float y() const {return 0;}
+    virtual float z() const {return 0;}
+    // ...
+protected:
+    Point(float x = 0.0);
+    float _x;
+}
+```
+
+![image-20220912165415315](./深入探索C++对象模型.assets/image-20220912165415315.png)
+
+### 多重继承下的virtual functions
+
+```c++
+class Base1{
+public:
+    Base1();
+    virtual ~Base1();
+    virtual void speakClearly();
+    virtual Base1 *clone() const;
+ protected:
+    float data_Base1;
+}
+
+class Base2{
+public:
+    Base2();
+    virtual ~Base2();
+    virtual void mumble();
+    virtual Base2 *clone() const;
+ protected:
+    float data_Base2;
+}
+
+class Derived: public Base1, public Base2{
+public:
+    Derived();
+    virtual ~Derived();
+    virtual Derived *clone() const;
+ protected:
+    float data_Derived;
+}
+```
+
+thunk技术：【感觉和前文的指针便宜没有啥区别，大概率是自己还没有理解透】
+
+1. 以适当的offset值调整this指针
+2. 调到virtual function去。
+
+例如经由一个Base2指针调用Derived destructor
+
+```c++
+pbase2_dtor_thunk:
+	this += sizeof(base1);
+	Derived::~Derived(this);
+```
+
+![image-20220912220255590](./深入探索C++对象模型.assets/image-20220912220255590.png)
+
+### 虚拟继承下的virtual functions
+
+```c++
+class Point2d{
+public:
+    Point2d(float = 0.0, float = 0.0);
+    virtual ~Point2d();
+    
+    virtual void mumble();
+    virtual float z();
+    // ...
+protected:
+    float _x, _y;
+}
+
+class Point3d : public virtual Point2d{
+public:
+    Point3d(float = 0.0, float = 0.0, float = 0.0);
+    ~Point3d();
+    
+    float z();
+protected:
+    float _z;
+}
+```
+
+![image-20220912221647916](./深入探索C++对象模型.assets/image-20220912221647916.png)
 
 
+
+不要在一个virtual base class中声明nonstatic data members。
+
+## 4.3 函数的效能【需要重新看】
+
+## 4.4 指向Member Function的指针
+
+取一个nonstatic data member的地址，得到的结果是该member在class布局中的bytes位置（再加1）。
+
+去一个nonstatic member function的地址，如果该函数是nonvirtual，得到的结果是它在内存中真正的地址。
+
+### 支持“指向virtual member functions”的指针
+
+```c++
+float (Point::*pmf)() = &Point::z;
+Point *ptr = new Point3d;
+// 以下两个语句都能调用函数
+ptr->z();
+(ptr->*pmf)();
+```
+
+对一个nonstatic member function取地址，得到的是该函数在内存中的地址。
+
+对一个virtual function取地址，所获得的只是一个索引值。因为其地址在编译期是未知的。
