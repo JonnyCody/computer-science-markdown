@@ -649,3 +649,63 @@ ptr->z();
 对一个nonstatic member function取地址，得到的是该函数在内存中的地址。
 
 对一个virtual function取地址，所获得的只是一个索引值。因为其地址在编译期是未知的。
+
+### 多重继承之下，指向Member Functions的指针
+
+为了让指向member functions的指针也能够支持多重继承和虚拟继承，使用以下结构体
+
+```c++
+struct __mptr{
+	int delta;
+    int index;
+    union{
+        ptrtofunc faddr;
+        int 	  v_offset;
+    };
+};
+```
+
+index和faddr分别不同时持有virtual table索引和nonvirtual member function地址
+
+```c++
+(ptr->*pmf)();
+
+// 变成
+(pmf.index < 0)
+? // non-virtual invocation
+(*pmf.faddr)(ptr)
+: // virtual invocation
+(*ptr->vptr[pmf.index](ptr));
+```
+
+## 4.5 Inline Function
+
+处理一个inline函数，有两个阶：
+
+1. 分析函数定义，以决定函数的“intrinsic inline ability”（本质的inline能力）
+2. 真正的inline函数扩展操作是在调用的那一点上。这会带来参数的求值操作以及临时性对象的管理
+
+### 形式参数
+
+每一个形式参数都会被对应的实际参数取代。如果实参需要进行计算，则会引入临时性对象。
+
+```c++
+inline int min(int i, int j)
+{
+    return i < j ? i : j;
+}
+
+inline int bar()
+{
+    int minval;
+    minval = min(foo(), bar() + 1);
+}
+
+// 展开为
+int t1;
+int t2;
+minval = (t1 = foo()), (t2 = bar() + 1), t1 < t2 ? t1 : t2;
+```
+
+### 局部变量
+
