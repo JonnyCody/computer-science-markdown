@@ -709,3 +709,9 @@ minval = (t1 = foo()), (t2 = bar() + 1), t1 < t2 ? t1 : t2;
 
 ### 局部变量
 
+# 第5章 构造、析构、拷贝语意学
+
+一般而言，class的data member应该被初始化，并且只在constructor中或是在class的其他member functions中指定初值。其他任何操作都会破坏封装性质，使class的维护和修改更加困难
+
+### 纯虚函数的存在
+
