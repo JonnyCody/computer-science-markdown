@@ -711,7 +711,245 @@ minval = (t1 = foo()), (t2 = bar() + 1), t1 < t2 ? t1 : t2;
 
 # 第5章 构造、析构、拷贝语意学
 
+```c++
+class Abstract_base{
+public:
+    virtual ~Abstract_base() = 0;
+    virtual void interface() const  = 0;
+    virtual const char* mumble() const {return _mumble;}
+protected:
+    char *_mumble;
+};
+```
+
 一般而言，class的data member应该被初始化，并且只在constructor中或是在class的其他member functions中指定初值。其他任何操作都会破坏封装性质，使class的维护和修改更加困难
 
 ### 纯虚函数的存在
 
+纯虚函数可以被定义和静态调用，不能经由虚拟机制调用。纯虚析构函数必须要提供定义。
+
+```c++
+inline void Abstract_base::interface() const
+{
+    function
+        // ...
+}
+
+inline void  Concrete_derived::interface() const
+{
+    // 静态调用
+    Abstract_base::interface();
+    // ...
+}
+```
+
+### 重新考虑class的声明
+
+```c++
+class Abstract_base{
+public:
+    virtual ~Abstract_base() = 0;
+    virtual void interface() = 0;
+    virtual const char* mumble() const {return _mumble;}
+protected:
+    Abstract_base(char *pc = 0);	// 新增一个带有唯一参数的constructor
+    char *_mumble;
+};
+```
+
+## 5.1 "无继承"情况下的对象构造
+
+## 5.2 继承体系下的对象构造
+
+编译器扩充操作构造器的步骤：
+
+1. 记录在成员初始化列表中的成员变量初始化操作会被放进构造函数的函数本体中，并以成员的声明顺序为顺序
+2. 如果有一个成员没有出现在成员初始化列表中，但它有一个默认构造函数，那么该默认构造函数必须被调用
+3. 在那之前，如果类对象有虚函数表指针，它们必须被设定初值，指向适当的虚函数表
+4. 在那之前，所有上一层的基类构造函数必须被调用，以基类的声明顺序为顺序
+   - 如果基类被列于成员初始化列表中，那么显式指定的参数都应该传递过去
+   - 如果基类没有被列于成员初始化列表中，而它有默认构造函数，那么就调用
+   - 如果基类是多重继承下的第二或后继的基类，那么this指针必须有所调整
+5. 在那之前，所有virtual base class constructors必须被调用，从左到右，从最深到最浅
+   - 如果class被列于成员初始化列表中，那么如果有任何显式指定的参数，都应该传递过去。若没有列于list中，而class有一个默认构造函数，则应该调用
+   - 类中的每一个virtual base subobject的偏移位置必须在执行期可被存取
+   - 如果class object是最底层的类，其构造函数可能被调用；某些用以支持这一行为的机制必须被放出来
+
+```c++
+class Point{
+public:
+    Point(float x = 0.0, float y = 0.0);
+    Point(const Point&);
+    Point& operator=(const Point&);
+    
+    virtual ~Point();
+    virtual float z() {return 0.0;}
+    // ...
+protected:
+    float _x, _y;
+};
+```
+
+
+
+### 虚拟继承
+
+```c++
+class Point3d : public virtual Point{
+public:
+    Point3d(float x = 0.0, float y = 0.0, float z = 0.0):Point(x,y), _z(z){}
+    Point3d(const Point3d& rhs):Point(rhs), _z(rhs.z){ }
+    ~Point3d();
+    Point3d& operator=(const Point3d&);
+    
+    virtual float z(){return _z;}
+    // ...
+protected:
+    float _z;
+};
+```
+
+有以下菱形继承关系：
+
+```c++
+class Vertex : virtual public Point{...};
+class Vertex3d : public Point3d, public Vertex{...};
+class PVertex : public Vertex3d{...};
+```
+
+如果按照之前继承构造顺序，则Point会被多次构造，所以会有一个变量bool __most_derived来控制Point的构造
+
+```c++
+// C++伪码：
+// 在virtual base class情况下的constructor扩充内容
+Point3d* Point3d::Point3d(Point3d *this, bool __most_derived, float x, float y, float z)
+{
+    if(__most_derived != false)
+    {
+        this->Point::Point(x, y);
+    }
+    this->__vptr_Point3d = __vtbl_Point3d;
+    this->__vptr_Point3d_Point = __vtbl_Point3d_Point;
+    this->_z = rhs.z;
+    return this;
+}
+
+// C++伪码：
+// 在virtual base class情况下的constructor扩充内容
+Vertex3d* Vertex3d::Vertex3d(Vertex3d *this, bool __most_derived, float x, float y, float z)
+{
+    if(__most_derived != false)
+    {
+        this->Point::Point(x, y);
+    }
+    // 调用上一层的base classes
+    // 设定__most_derived为false
+    this->Point3d::Point3d(false, x, y, z);
+    this->Vertex::Vertex(false, x, y);
+    
+    // 设定vptrs
+    // 安插user code
+    
+    return this;
+}
+```
+
+只有当一个完整的class object被定义出来，才会调用virtual base class constructors，如果object只是某个完整object的subobject，就不会被调用
+
+定义一个PVertex object时，constructor的调用顺序是：
+
+- Point(x,y);
+- Point3d(x, y, z);
+- Vertex(x, y, z);
+- Vertex3d(x, y, z);
+- PVertex(x, y, z);
+
+### vptr初始化语意学
+
+在Poin3d constructor中调用size()函数(虚函数)，必须被决议为Point3d::size()而不是PVertex::size()。在一个类（假设是Point3d）的构造函数中，经由构造函数中的对象来调用一个虚函数，其函数实例应该是在此类(本例为Point3d)中有作用的那个。
+
+vptr初始化时机：base class constructors调用操作之后，在member initialization lis中所列的member初始化操作前。
+
+```c++
+PVertex::PVtertex(float x, float y, float z) : _next(0), Vertex3d(x, y, z), Point(x, y)
+{
+    if(spyOn)
+    {
+        cerr << "Within PVertex::PVertex()"
+           << "size: " << size() << endl;
+	}
+};
+
+// 上述代码被扩展为
+// C++伪码
+// PVertex constructor的扩展结果
+PVertex* PVertex::PVertex(PVertex* this, bool __most_derived, float x, float y, float z)
+{
+    // 条件式的调用vitual base constructor
+    if(__most_derived != false)
+    {
+        this->Point::Point(x, y);
+    }
+    
+    // 无条件地调用上一层base
+    this->Vertex3d::Vertex3d(x, y, z);
+    
+    // 将相关的vpter初始化
+    this->__vptr_PVertex = __vbtl_PVertex;
+    this->__vptr_Point_PVertex = __vbtl_Point_PVertex;
+    
+    // 程序员所写的代码
+    if(spyOn)
+    {
+        cerr << "Within PVertex::PVertex()"
+            << "size: "
+            // 经由虚拟机制调用
+            << (*this->__vptr_PVertex[3].faddr)(this)
+            << endl;
+	}
+    
+    // 传回被构造的对象
+    return *this;
+}
+```
+
+## 5.3 对象复制语意学
+
+copy assignment operator缺乏一个member assignment list（类似于member initialization list），所以无法抑制上一层base class的copy operators被调用
+
+```c++
+inline Vertex3d& Vertex3d::operator=(const Vertex3d &v)
+{
+    this->Point::operator=(v);
+    this->Point3d::operator=(v);
+    this->Vertex::operator=(v);
+}
+```
+
+编译器如何在Point3d和Vertex的copy assignment operator中抑制Point的copy assignment operators呢？
+
+有一种方法可以保证most-derived class会引发virtual base class subobject的copy行为，就是在derived class的copy assignment operator函数实例的最后，显式调用那个operator，例如：
+
+```c++
+inline Vertex3d& Vertex3d::operator=(const Vertex3d &v)
+{
+    this->Point3d::operator=(v);
+    this->Vertex::operator=(v);
+    // must place this last if your compiler does
+    // not suppress intermediate class invocations
+    this->Point::operator=(v);
+    ...
+}
+```
+
+
+
+## 5.4 对象的效能
+
+## 5.5 析构语意学
+
+析构函数调用顺序
+
+1. 析构函数本体首先被调用
+2. 如果类拥有member class object，而后者拥有析构函数，那么它们会以其声明顺序的相反顺序被调用
+3. 如果object内含一个vptr，现在被重新设定，指向适当的base class的virtual table
