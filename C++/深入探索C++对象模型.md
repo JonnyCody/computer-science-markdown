@@ -953,3 +953,190 @@ inline Vertex3d& Vertex3d::operator=(const Vertex3d &v)
 1. 析构函数本体首先被调用
 2. 如果类拥有member class object，而后者拥有析构函数，那么它们会以其声明顺序的相反顺序被调用
 3. 如果object内含一个vptr，现在被重新设定，指向适当的base class的virtual table
+
+# 第6章 运行期语意学
+
+## 6.1 对象的构造和析构
+
+一般而言我们会把object尽可能放置在使用它的那个程序区段附近，这么做可以节省非必要的对象产生操作和摧毁操作。
+
+### 全局对象
+
+C++程序中所有的global objects都被放置在程序data segment中。如果显式指定给它一个值，此object将以该值为初值。否则object所配置到的内存内容为0。
+
+静态初始化过程：
+
+1. 为每一个需要静态初始化的文件产生一个_sti()函数，内含必要的constructor调用操作或inline expansions。
+2. 在每一个需要静态的内存释放操作的文件中，产生一个_std()函数，内含必要的destructor调用操作，或是其中inline expansions。
+3. 提供一组runtime library "munch"函数：一个_main()函数，用以调用可执行文件中所有的 _sti()函数，以及一个exit()函数
+
+![image-20221006231526161](E:\Computer Science\个人笔记\C++\深入探索C++对象模型.assets\image-20221006231526161.png)
+
+### 局部静态对象
+
+局部静态对象只有函数被调用时进行构造。
+
+### 对象数组
+
+假设有如下数组定义：
+
+```c++
+Point knotes[10];
+```
+
+使用一个被命名为vec_new()的函数，产生出以class objects构造而成的数组
+
+```c++
+void* vec_new(
+    void *array,							// address of start of array
+	size_t elem_size,						// size of each class object
+	int elem_count, 						// number of elements in array
+	void (*constructor)(void*), 
+	void (*desconstructor)(void*, char)
+)
+```
+
+编译器针对10个Point元素所做的vec_new()调用操作：
+
+```c++
+Point knots[10];
+vec_new(&knots, sizeof( Point ), 10, &Point::Point, 0);
+```
+
+数组的析构过程也是一个经由vec_delete()函数完成
+
+```c++
+void* vec_delete(
+    void *array,							// address of start of array
+	size_t elem_size,						// size of each class object
+	int elem_count, 						// number of elements in array
+	void (*desconstructor)(void*, char)
+)
+```
+
+### Default Constructor和数组
+
+上述的vec_new()函数缺陷在于无法处理带有默认参数的构造函数，当构造函数是`complex::complex(double = 0.0, double = 0.0);`时，无法处理，采取的解决方法是产生一个内部的stub constructor，没有参数
+
+```c++
+// 内部产生的stub constructor
+// 用以支持数组的构造
+complex::complex()
+{
+    complex(0.0, 0.0);
+}
+```
+
+## 6.2 new和delete运算符
+
+new 操作主要有两个步骤完成：
+
+```c++
+Point3d *origin = new Point3d;
+```
+
+会被转化为：
+
+```c++
+Point3d *origin;
+// c++伪码
+if(origin = __new(sizeof(Point3d)))		// 分配内存
+{
+    try
+    {
+        origin = Point3d::Point3d(origin);	// 使用构造函数
+    }
+    cache(...)
+    {
+        // 调用delete library function以释放因new而配置的内存
+        __delete(origin);
+        
+        // 将原来的exception上传
+        throw;
+    }
+}
+```
+
+### 针对数组的new语意
+
+```c++
+struct simple_aggr
+{
+    float f1, f2;
+}
+
+simple_aggr *p_aggr = new simple_aggr[5];
+```
+
+vec_new()不会被调用，因为simple_aggr没有定义一个constructor或desconstructor，所以只是单纯的获得内存和释放内存。如果class定义了一个default constructor，某些版本的vec_new()就会被调用。
+
+delete[]只有当中括号出现时，编译器才寻找数组的维度，否则它便假设只有单独一个objects要被删除。**避免以一个base class指针指向一个derived class objects所组成的数组**，如果derived class object比其base大的话。
+
+```c++
+Point *ptr = new Point3d[10];
+
+// 只有Point::~Point被调用...
+delete[] ptr;
+```
+
+【即使调用了Point3d::~Point3d，还是有问题，因为sizeof(Point)和sizeof(Point3d)不同，第一个元素会成功释放，但是后续元素不会成功释放】
+
+### Placement Operator new的语意
+
+placement operator new **不会分配新内存**
+
+```c++
+void* operator new(size_t, void* p)
+{
+    return p;
+}
+
+Point2w *ptw = new (arena) Point2w;		// arena指向内存中的一个区块，用以放置新产生的Point2w object
+
+// C++伪码
+Point2w *ptw = new (Point2w) arena;
+if(ptw != 0)
+{
+    ptw->Point2w::Point2w();
+}
+```
+
+如果在已经存在一个对象的地址上构造新的对象，正确操作应该如下
+
+```c++
+Point2w *p2w = new (arena) Point2w;
+// 调用析构函数而非使用delete，因为使用delete会删除已经分配的内存
+p2w->~Point2w;
+p2w = new (arena) Point2w;
+```
+
+placement new operator并不支持多态，
+
+```c++
+struct Base
+{
+    int j;
+    virtual void f()
+    {
+        std::cout << "Base" << std::endl;
+    }
+};
+
+struct Derived : Base
+{
+    void f() override
+    {
+        std::cout << "Derived" << std::endl;
+    }
+};
+
+int main()
+{
+    Base b;
+    b.f();
+    b.~Base();
+    new (&b) Derived;		// 父类和子类的大小一致
+    b.f();					// 运行基类的函数
+}
+```
+
