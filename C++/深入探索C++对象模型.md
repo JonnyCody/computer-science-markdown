@@ -1140,3 +1140,26 @@ int main()
 }
 ```
 
+## 6.3 临时性对象
+
+临时性对象在完整表达式尚未评估完全之前，不得被摧毁。但是有两种情况除外：
+
+- 凡持有表达式执行结果的临时性对象，应该留存到object的初始化操作完成为止
+
+  ```c++
+  bool verbose;
+  ...
+  string progNameVersion = !verbose ? 0 : progName + progVersion;	//临时性对象会在初始化操作完成后结束
+  ```
+
+  
+
+- 如果一个临时性对象被绑定于一个reference，对象将残留，直到被初始化的reference的生命结束，或直到临时对象的生命范畴结束——视哪一种情况先到达而定
+
+  ```c++
+  const char *progNameVersion = progName + progVersion;	// 临时性对象会在progNameVersion生命周期结束后结束
+  ```
+
+  ### 临时性对象的迷思
+
+  由于目前的C++编译器会产生临时性对象，导致程序的执行比较低效。
