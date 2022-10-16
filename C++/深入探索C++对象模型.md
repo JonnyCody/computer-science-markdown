@@ -1163,3 +1163,188 @@ int main()
   ### 临时性对象的迷思
 
   由于目前的C++编译器会产生临时性对象，导致程序的执行比较低效。
+
+# 第7章 站在对象模型的尖端
+
+## 7.1 Template
+
+```c++
+template<class Type>
+class Point
+{
+public:
+    enum Status {unallocated, normalized};
+    Point(Type x = 0.0, Type y = 0.0, Type z = 0.0);
+    ~Point();
+    
+    void* operator new(size_t);
+    void operator delete(void*, size_t);
+    // ...
+private:
+	static Point<Type> *freeList;
+    static int chunkSize;
+    Type _x, _y, _z;
+};
+```
+
+对于引用，编译器会进行内部拓展：
+
+```c++
+const Point<float> &ref = 0;
+
+// 内部拓展
+Point<float> temporary(float 0);
+const Point<float> &ref = temporary;
+```
+
+对于一个class object的定义，都已导致template class的实例化，但是member functions不应该被实例化，只有在member functions被使用的时候，C++ Standard才要求它们被“实例化”。
+
+```c++
+Point<float> *p = new Point<float>;
+```
+
+函数实例化的两种策略：
+
+- 在编译的时候，函数将实例化与origin和p存在的那个文件中
+- 在链接的时候，编译器会被一些辅助工具重新激活。template函数实例可能被放在这一文件中，别的文件中或一个分离的存储位置
+
+### Template的错误报告
+
+所有与类型有关的检验，如果牵涉到template参数，都必须延迟到真正的实例化操作发生。所有的语法和解析错误都会在处理template声明的过程中被标识出来。
+
+### Template中的名称决议法
+
+template的定义范围有两种：
+
+1. scope of the template definition，也就是定义出template的程序端，例如
+
+   ```c++
+   // scope of the template definition
+   extern double foo(double);
+   
+   template<class type>
+   class ScopeRules
+   {
+   public:
+       void invariant()
+       {
+           _member = foo(_val);
+       }
+       type type_dependent()
+       {
+           return foo(_member);
+       }
+       // ...
+   private:
+       int _val;
+       type _member;
+   };
+   ```
+
+2. scope of the template instantiation， 实例化template的程序端
+
+   ```c++
+   // scope of the template instantiation
+   extern int foo(int);
+   // ...
+   ScopeRules<int> sr0;
+   ```
+
+Template中，对一个nonmember name的决议结果，是根据这个name的使用是否与“用以实例化该template的参数类型”有关而决定的。
+
+```c++
+sr0.invariant();
+sr0.type_dependent();
+```
+
+这两个函数调用的foo函数是不同的，
+
+- 在invariant()函数中，使用的参数和template参数类型无关，所以会调用scope of the template definition的函数，即double foo(double);
+- 在type_dependent()函数中，参数与template参数类型有关，类型为int，所以就会调用scope of the template instantiation，及int foo(int);
+
+可以得出结论
+
+- **scope of the template definition**，用以专注于一般的template class
+- **scope of the template instantiation**，用以专注于特定的实例
+
+### Member Function的实例化行为（没有彻底理解）
+
+对于template function的实例化，编译器有两个策略：
+
+1. 编译时期，程序代码必须在program text file中备妥可用
+2. 链接时期，有一些mate-compilation工具可以引导编译器的实例化行为
+
+## 7.2 异常处理
+
+### Exception Handling快速检阅
+
+C++的exception handling由三个主要的语汇组件构成：
+
+1. 一个throw子句。它在程序某处发出一个exception。
+2. 一个或多个catch子句。每一个catch子句都是一个exception handler。
+3. 一个try区段。它被围绕以一系列的叙述句，这些叙述句可能引发catch子句起作用。
+
+当一个exception被抛出去时，控制权会从函数调用中被释放出来，当控制权被放弃后，堆栈中的每一个函数调用也就被推离(popped up)。这个程序称为**unwinding the stack**。
+
+### 对Exception Handling的支持（需要重新阅读）
+
+当一个exception发生时，编译系统必须完成以下事情
+
+1. 检验发生throw操作的函数
+2. 决定throw操作是否发生在try区段中
+3. 若是，编译系统必须把exception type拿来和每一个catch子句进行比较
+4. 如果比较后吻合，流程控制应该交到catch子句中
+5. 如果throw的发生并不在try区段中，或没有一个catch子句吻合，那么系统必须(a)摧毁所有active local objects，(b)从堆栈中将目标的函数"unwind"掉，(c)进行到程序堆栈的下一个函数中去，然后重复上述步骤2~5
+
+## 7.3 执行期类型识别
+
+### Type-Safe Downcast
+
+通过一个或多个virtual functions来区别class声明。优点是可以透明化将旧程序转换过来，只要重新编译就好。缺点是会将一个其实并非必要的virtual function强迫导入继承体系中的base class身上。
+
+### Type-Safe Dynamic Cast
+
+dynamic_cast运算符可以在执行期间决定真正的类型，如果downcast是安全的，这个运算符会传回
+
+```c++
+class node{...};
+class type : public node{...};
+
+class fct : public type{...};
+class gen : public type{...};
+
+// 取得pt的类型描述器
+((type_info*)(pt->vptr[0]))->_type_descriptor;
+```
+
+type_info是C++ Standard所定义的类型描述器的class名称，该class中放置着待索求的类型信息。virtual table的第一个slot内含type_info object的地址；此type_info object与pt所指的class type有关。
+
+### Reference并不是Pointers
+
+一个reference不可以像指针那样”把自己设为0便代表了no object“，若将给reference设为0，会引起一个临时性对象被产生出来，该临时对象的初值为0。对reference进行dynamic_cast会产生一下情况：
+
+1. 如果reference真正参考到适当的derived class，downcast会被执行而程序可以继续进行
+
+2. 如果reference并不是某一种derived class，那么，由于不能传回0，因此抛出一个bad_cast exception
+
+   ```c++
+   simplify_conv_op(const type &rt)
+   {
+       try
+       {
+           fct &rf = dynamic_cast<fct&> (rt);
+           // ...
+       }
+       catch(bad_cast)
+       {
+           // ... mumble ...
+       }
+   }
+   ```
+
+### Typeid运算符
+
+typeid运算符传回一个const reference，类型为type_info。
+
+## 7.4 效率有了，弹性呢
+
